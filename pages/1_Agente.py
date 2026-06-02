@@ -222,6 +222,24 @@ with st.sidebar:
         st.session_state.tool_log_all = []
         st.rerun()
 
+    st.divider()
+    st.markdown("### 🔄 Sincronización")
+    if st.button("⬇️ Sincronizar correos ahora", use_container_width=True, type="primary"):
+        with st.spinner("Conectando a Gmail…"):
+            try:
+                from sync_imap import sync_emails
+                r = sync_emails()
+                if r.get("error"):
+                    st.error(f"Error: {r['error']}")
+                else:
+                    st.success(
+                        f"✅ Listo — {r['emails_processed']} correos procesados, "
+                        f"{r['novedades_added']} novedades nuevas."
+                    )
+                    st.rerun()
+            except Exception as e:
+                st.error(f"❌ {e}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # HERRAMIENTAS (funciones Python que el agente puede llamar)
