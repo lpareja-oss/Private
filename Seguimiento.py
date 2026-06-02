@@ -631,7 +631,7 @@ if not df.empty:
         }
         return colors.get(val, "")
 
-    styled = df_display.style.applymap(color_penalidad, subset=["penalidad"])
+    styled = df_display.style.map(color_penalidad, subset=["penalidad"])
 
     col_cfg = {
         "fecha":               st.column_config.TextColumn("Fecha", width="small"),
