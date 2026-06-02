@@ -864,7 +864,8 @@ if st.session_state.get("run_agent"):
                 expanded=False,
             ):
                 for t in tool_log:
-                    params = {k: v for k, v in t["input"].items() if v}
+                    inp = t.get("input") if isinstance(t.get("input"), dict) else {}
+                    params = {k: v for k, v in inp.items() if v}
                     st.caption(f"**{t['tool']}**({', '.join(f'{k}={v}' for k,v in params.items()) or '—'})")
 
         render_msg(respuesta)
