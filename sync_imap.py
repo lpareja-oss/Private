@@ -33,7 +33,13 @@ SUBJECT_KEYWORDS = ["Reporte Novedades"]
 # ─── Configuración ──────────────────────────────────────────────────────────
 
 def leer_config() -> dict | None:
-    """Lee usuario y contraseña desde config_sync.txt. Retorna None si no existe."""
+    """Lee credenciales Gmail desde variables de entorno (cloud) o config_sync.txt (local)."""
+    # Primero: variables de entorno (Streamlit Cloud secrets)
+    env_user = os.environ.get("GMAIL_USER", "")
+    env_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+    if env_user and env_pass:
+        return {"GMAIL_USER": env_user, "GMAIL_APP_PASSWORD": env_pass}
+    # Segundo: archivo local
     if not os.path.exists(CONFIG_FILE):
         return None
     config = {}
@@ -267,20 +273,21 @@ def sync_emails() -> dict:
     usuario  = config["GMAIL_USER"]
     password = config["GMAIL_APP_PASSWORD"]
 
-    # IDs ya conocidos
+    # IDs ya conocidos — compatible con sqlite3 y psycopg2
+    def _q(conn, sql):
+        try:
+            return conn.execute(sql).fetchall()
+        except AttributeError:
+            cur = conn.cursor()
+            cur.execute(sql)
+            return cur.fetchall()
+
     conn = get_connection()
-    known_novedad_ids = {
-        row[0] for row in conn.execute("SELECT message_id FROM novedades").fetchall()
-    }
-    known_respuesta_ids = {
-        row[0] for row in conn.execute("SELECT message_id FROM respuestas").fetchall()
-    }
-    # thread_id → email_date original (para calcular tiempo de respuesta)
+    known_novedad_ids  = {row[0] for row in _q(conn, "SELECT message_id FROM novedades")}
+    known_respuesta_ids = {row[0] for row in _q(conn, "SELECT message_id FROM respuestas")}
     thread_dates = {
         row[0]: row[1]
-        for row in conn.execute(
-            "SELECT thread_id, MIN(email_date) FROM novedades GROUP BY thread_id"
-        ).fetchall()
+        for row in _q(conn, "SELECT thread_id, MIN(email_date) FROM novedades GROUP BY thread_id")
     }
     conn.close()
 

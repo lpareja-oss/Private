@@ -5,19 +5,22 @@ Ejecutar con: streamlit run dashboard.py
 """
 
 import os
+import threading
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
-# ── Inyectar DATABASE_URL desde Streamlit secrets (Streamlit Cloud) ───────
+# ── Inyectar secrets de Streamlit Cloud en variables de entorno ───────────
 try:
-    if "DATABASE_URL" in st.secrets and not os.environ.get("DATABASE_URL"):
-        os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
+    for _k in ("DATABASE_URL", "GMAIL_USER", "GMAIL_APP_PASSWORD"):
+        if _k in st.secrets and not os.environ.get(_k):
+            os.environ[_k] = st.secrets[_k]
 except Exception:
     pass
 
+from streamlit_autorefresh import st_autorefresh
 from database import init_db, get_all_novedades, get_last_sync, get_pendientes
 
 # ── Configuración de página ───────────────────────────────────────────────
@@ -65,45 +68,43 @@ st.markdown(
 # ── Inicializar DB (seed si está vacía) ───────────────────────────────────
 init_db()
 
+# ── Auto-sync en segundo plano (cada 10 minutos) ──────────────────────────
+_sync_lock = threading.Lock()
+
+def _auto_sync():
+    """Ejecuta sync Gmail en background si pasaron más de 10 minutos."""
+    if not _sync_lock.acquire(blocking=False):
+        return  # ya hay un sync corriendo
+    try:
+        last = get_last_sync()
+        if last != "Nunca":
+            try:
+                ts = datetime.strptime(last.split("  ")[0], "%Y-%m-%d %H:%M")
+                if (datetime.now() - ts).total_seconds() < 600:
+                    return  # synced hace menos de 10 min
+            except Exception:
+                pass
+        from sync_imap import sync_emails
+        sync_emails()
+    except Exception:
+        pass
+    finally:
+        _sync_lock.release()
+
+threading.Thread(target=_auto_sync, daemon=True).start()
+
+# Refrescar la página automáticamente cada 10 minutos
+st_autorefresh(interval=600_000, key="autorefresh")
+
 
 # ── Sidebar ───────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🚨 Novedades MLP\n**Logysto — Tablero en vivo**")
     st.divider()
 
-    # Sincronizar Gmail
-    st.markdown("### 🔄 Sincronización Gmail")
-
-    import os
-    config_ok = os.path.exists(
-        os.path.join(os.path.dirname(__file__), "config_sync.txt")
-    )
-
-    if not config_ok:
-        st.warning("⚙️ Sincronización no configurada")
-        st.caption(
-            "Abrí una terminal en esta carpeta y ejecutá:\n\n"
-            "`python sync_imap.py --configurar`"
-        )
-    else:
-        if st.button("🔄 Sincronizar ahora", use_container_width=True, type="primary"):
-            with st.spinner("Conectando con Gmail..."):
-                try:
-                    from sync_imap import sync_emails
-                    result = sync_emails()
-                    if result["error"]:
-                        st.warning(f"⚠️ {result['error']}")
-                    elif result["novedades_added"] > 0:
-                        st.success(
-                            f"✅ {result['novedades_added']} novedades nuevas."
-                        )
-                        st.rerun()
-                    else:
-                        st.info("Sin novedades nuevas.")
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-    st.caption(f"Última sync: {get_last_sync()}")
+    # Estado de sincronización (solo lectura — sync automático cada 10 min)
+    ultimo = get_last_sync()
+    st.caption(f"🔄 Última actualización: {ultimo}")
     st.divider()
 
     # Filtros globales
