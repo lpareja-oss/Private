@@ -31,12 +31,23 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Colores por penalidad ─────────────────────────────────────────────────
+# ── Paleta ClicOH ────────────────────────────────────────────────────────
+BRAND_PURPLE   = "#533FB0"   # Principal — Critico / urgente
+BRAND_LAVENDER = "#8C9EF7"   # Secundario — Grave
+BRAND_AQUA     = "#00CCA9"   # Acento verde-azul — Moderada / positivo
+BRAND_TEAL     = "#3AADA0"   # Derivado aqua — Leve
+BRAND_SOFT     = "#9E8FE0"   # Derivado púrpura claro — gráficos adicionales
+BRAND_BLACK    = "#222329"   # Fondo oscuro
+
+# Secuencia para gráficos sin categoría de severidad
+CHART_SEQ = [BRAND_PURPLE, BRAND_LAVENDER, BRAND_AQUA, BRAND_TEAL, BRAND_SOFT,
+             "#7BA7DC", "#5BC4A8", "#B8AEFF", "#4ECDC4", "#6B8FBF"]
+
 PENALIDAD_COLORS = {
-    "Critico":  "#d32f2f",
-    "Grave":    "#f57c00",
-    "Moderada": "#f9a825",
-    "Leve":     "#388e3c",
+    "Critico":  BRAND_PURPLE,
+    "Grave":    BRAND_LAVENDER,
+    "Moderada": BRAND_AQUA,
+    "Leve":     BRAND_TEAL,
 }
 PENALIDAD_ORDER = ["Critico", "Grave", "Moderada", "Leve"]
 
@@ -223,17 +234,17 @@ tiempo_prom    = f"{tiempos_validos.mean():.0f} min" if len(tiempos_validos) > 0
 
 with col1:
     st.markdown(
-        kpi_html("Total Novedades", total, "en el período seleccionado", "#4fc3f7"),
+        kpi_html("Total Novedades", total, "en el período seleccionado", BRAND_LAVENDER),
         unsafe_allow_html=True,
     )
 with col2:
     st.markdown(
-        kpi_html("Crítico + Grave", graves, f"{pct_graves} del total", "#d32f2f"),
+        kpi_html("Crítico + Grave", graves, f"{pct_graves} del total", BRAND_PURPLE),
         unsafe_allow_html=True,
     )
 with col3:
     pendientes_kpi = total - respondidas
-    color_pend = "#d32f2f" if pendientes_kpi > 0 else "#388e3c"
+    color_pend = BRAND_PURPLE if pendientes_kpi > 0 else BRAND_AQUA
     st.markdown(
         kpi_html("Sin respuesta ClicOH", pendientes_kpi, f"{pct_resp} respondidas", color_pend),
         unsafe_allow_html=True,
@@ -241,12 +252,12 @@ with col3:
 with col4:
     tipo_top_short = tipo_top[:28] + "…" if len(str(tipo_top)) > 28 else tipo_top
     st.markdown(
-        kpi_html("Tipo más frecuente", tipo_top_short, "error más recurrente", "#f57c00"),
+        kpi_html("Tipo más frecuente", tipo_top_short, "error más recurrente", BRAND_AQUA),
         unsafe_allow_html=True,
     )
 with col5:
     st.markdown(
-        kpi_html("Vehículo más reportado", patente_top, "", "#26a69a"),
+        kpi_html("Vehículo más reportado", patente_top, "", BRAND_TEAL),
         unsafe_allow_html=True,
     )
 
@@ -414,7 +425,7 @@ with col_inf:
             go.Pie(
                 labels=inf_counts["infractor"],
                 values=inf_counts["count"],
-                marker_colors=["#1565c0", "#6a1b9a", "#00695c"],
+                marker_colors=[BRAND_PURPLE, BRAND_AQUA, BRAND_LAVENDER],
                 hole=0.4,
                 textinfo="label+percent+value",
             )
@@ -470,11 +481,11 @@ if not df.empty and "estado_respuesta" in df.columns:
     col_resp1, col_resp2 = st.columns([1, 2])
 
     RESP_COLORS = {
-        "PENDIENTE URGENTE": "#d32f2f",
-        "PENDIENTE":         "#f57c00",
-        "En gestion":        "#1565c0",
-        "Acuse de recibo":   "#f9a825",
-        "Resuelto":          "#388e3c",
+        "PENDIENTE URGENTE": BRAND_PURPLE,
+        "PENDIENTE":         BRAND_LAVENDER,
+        "En gestion":        BRAND_AQUA,
+        "Acuse de recibo":   BRAND_SOFT,
+        "Resuelto":          BRAND_TEAL,
     }
     RESP_ORDER = ["PENDIENTE URGENTE", "PENDIENTE", "En gestion", "Acuse de recibo", "Resuelto"]
     RESP_LABELS = {
@@ -554,7 +565,7 @@ if urgentes_total > 0:
         f'<div class="section-title" style="color:#d32f2f">🔴 Novedades CRÍTICAS/GRAVES sin respuesta ClicOH ({urgentes_total})</div>',
         unsafe_allow_html=True,
     )
-    NIVEL_COL = {"Critico": "#d32f2f", "Grave": "#f57c00", "Moderada": "#f9a825", "Leve": "#388e3c"}
+    NIVEL_COL = {"Critico": BRAND_PURPLE, "Grave": BRAND_LAVENDER, "Moderada": BRAND_AQUA, "Leve": BRAND_TEAL}
     for _, row in pendientes_urgentes.sort_values("email_date").iterrows():
         color = NIVEL_COL.get(row.get("penalidad", ""), "#555")
         dias  = (date.today() - row["email_date"].date()).days if pd.notna(row.get("email_date")) else "?"
@@ -624,10 +635,10 @@ if not df.empty:
 
     def color_penalidad(val):
         colors = {
-            "Critico": "background-color: #7f1f1f; color: #fff",
-            "Grave":   "background-color: #7a3a00; color: #fff",
-            "Moderada":"background-color: #6b5800; color: #fff",
-            "Leve":    "background-color: #1b4a1b; color: #fff",
+            "Critico":  f"background-color: {BRAND_PURPLE}; color: #fff",
+            "Grave":    f"background-color: {BRAND_LAVENDER}; color: #222",
+            "Moderada": f"background-color: {BRAND_AQUA}; color: #222",
+            "Leve":     f"background-color: {BRAND_TEAL}; color: #fff",
         }
         return colors.get(val, "")
 
