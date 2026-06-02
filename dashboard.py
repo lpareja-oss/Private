@@ -1,0 +1,670 @@
+"""
+dashboard.py
+Tablero en vivo — Novedades MLP Logysto
+Ejecutar con: streamlit run dashboard.py
+"""
+
+import os
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import date, timedelta
+
+# ── Inyectar DATABASE_URL desde Streamlit secrets (Streamlit Cloud) ───────
+try:
+    if "DATABASE_URL" in st.secrets and not os.environ.get("DATABASE_URL"):
+        os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
+except Exception:
+    pass
+
+from database import init_db, get_all_novedades, get_last_sync, get_pendientes
+
+# ── Configuración de página ───────────────────────────────────────────────
+st.set_page_config(
+    page_title="Novedades MLP · Logysto",
+    page_icon="🚨",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ── Colores por penalidad ─────────────────────────────────────────────────
+PENALIDAD_COLORS = {
+    "Critico":  "#d32f2f",
+    "Grave":    "#f57c00",
+    "Moderada": "#f9a825",
+    "Leve":     "#388e3c",
+}
+PENALIDAD_ORDER = ["Critico", "Grave", "Moderada", "Leve"]
+
+# ── CSS personalizado ─────────────────────────────────────────────────────
+st.markdown(
+    """
+    <style>
+    .kpi-card {
+        background: #1e1e2e;
+        border-radius: 12px;
+        padding: 18px 22px;
+        margin: 4px;
+        border-left: 5px solid;
+    }
+    .kpi-label { font-size: 13px; color: #aaa; margin-bottom: 4px; }
+    .kpi-value { font-size: 32px; font-weight: 700; color: #fff; line-height: 1.1; }
+    .kpi-delta { font-size: 13px; color: #aaa; margin-top: 4px; }
+    .section-title {
+        font-size: 16px; font-weight: 600;
+        color: #ccc; margin: 20px 0 8px 0;
+        border-bottom: 1px solid #333; padding-bottom: 6px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ── Inicializar DB (seed si está vacía) ───────────────────────────────────
+init_db()
+
+
+# ── Sidebar ───────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 🚨 Novedades MLP\n**Logysto — Tablero en vivo**")
+    st.divider()
+
+    # Sincronizar Gmail
+    st.markdown("### 🔄 Sincronización Gmail")
+
+    import os
+    config_ok = os.path.exists(
+        os.path.join(os.path.dirname(__file__), "config_sync.txt")
+    )
+
+    if not config_ok:
+        st.warning("⚙️ Sincronización no configurada")
+        st.caption(
+            "Abrí una terminal en esta carpeta y ejecutá:\n\n"
+            "`python sync_imap.py --configurar`"
+        )
+    else:
+        if st.button("🔄 Sincronizar ahora", use_container_width=True, type="primary"):
+            with st.spinner("Conectando con Gmail..."):
+                try:
+                    from sync_imap import sync_emails
+                    result = sync_emails()
+                    if result["error"]:
+                        st.warning(f"⚠️ {result['error']}")
+                    elif result["novedades_added"] > 0:
+                        st.success(
+                            f"✅ {result['novedades_added']} novedades nuevas."
+                        )
+                        st.rerun()
+                    else:
+                        st.info("Sin novedades nuevas.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    st.caption(f"Última sync: {get_last_sync()}")
+    st.divider()
+
+    # Filtros globales
+    st.markdown("### 🔽 Filtros")
+
+    df_all = get_all_novedades()
+
+    # Rango de fechas
+    min_date = df_all["fecha"].min()
+    max_date = df_all["fecha"].max()
+    if pd.isna(min_date):
+        min_date = date.today() - timedelta(days=90)
+        max_date = date.today()
+
+    date_from = st.date_input(
+        "Desde",
+        value=min_date.date() if hasattr(min_date, "date") else min_date,
+        min_value=min_date.date() if hasattr(min_date, "date") else min_date,
+        max_value=max_date.date() if hasattr(max_date, "date") else max_date,
+    )
+    date_to = st.date_input(
+        "Hasta",
+        value=max_date.date() if hasattr(max_date, "date") else max_date,
+        min_value=min_date.date() if hasattr(min_date, "date") else min_date,
+        max_value=max_date.date() if hasattr(max_date, "date") else max_date,
+    )
+
+    ciudades_opts = ["Todas"] + sorted(df_all["ciudad"].dropna().unique().tolist())
+    ciudad_sel = st.selectbox("Ciudad", ciudades_opts)
+
+    penalidades_opts = ["Todas"] + [p for p in PENALIDAD_ORDER if p in df_all["penalidad"].values]
+    penalidad_sel = st.selectbox("Penalidad", penalidades_opts)
+
+    infractores_opts = ["Todos"] + sorted(df_all["infractor"].dropna().unique().tolist())
+    infractor_sel = st.selectbox("Infractor", infractores_opts)
+
+    tipo_email_opts = ["Todos", "GRAVE_CRITICO", "SEMANAL"]
+    tipo_email_sel = st.selectbox("Tipo de reporte", tipo_email_opts)
+
+
+# ── Aplicar filtros ───────────────────────────────────────────────────────
+df = df_all.copy()
+df = df[df["fecha"].notna()]
+df = df[df["fecha"].dt.date >= date_from]
+df = df[df["fecha"].dt.date <= date_to]
+if ciudad_sel != "Todas":
+    df = df[df["ciudad"] == ciudad_sel]
+if penalidad_sel != "Todas":
+    df = df[df["penalidad"] == penalidad_sel]
+if infractor_sel != "Todos":
+    df = df[df["infractor"] == infractor_sel]
+if tipo_email_sel != "Todos":
+    df = df[df["email_type"] == tipo_email_sel]
+
+
+# ── Encabezado ────────────────────────────────────────────────────────────
+st.markdown("# 🚨 Novedades MLP · Logysto")
+st.caption(
+    f"Período analizado: **{date_from}** → **{date_to}** · "
+    f"{len(df)} novedades encontradas"
+)
+st.divider()
+
+
+# ── BANNER DE ALERTAS — Pendientes de respuesta ───────────────────────────
+df_pendientes_all = get_pendientes()   # sin filtro de fecha para no perder alertas viejas
+pendientes_urgentes = df_pendientes_all[
+    df_pendientes_all["penalidad"].isin(["Critico", "Grave"])
+]
+pendientes_total = len(df_pendientes_all)
+urgentes_total   = len(pendientes_urgentes)
+
+if urgentes_total > 0:
+    st.error(
+        f"⚠️  **{urgentes_total} novedad{'es' if urgentes_total > 1 else ''} "
+        f"CRÍTICA/GRAVE sin respuesta de ClicOH** — "
+        f"requieren atención inmediata",
+        icon="🔴",
+    )
+elif pendientes_total > 0:
+    st.warning(
+        f"📬  **{pendientes_total} novedad{'es' if pendientes_total > 1 else ''} "
+        f"pendiente{'s' if pendientes_total > 1 else ''} de respuesta** de ClicOH",
+        icon="🟡",
+    )
+else:
+    st.success("✅  Todas las novedades tienen respuesta de ClicOH", icon="🟢")
+
+# Expandible con detalle de pendientes
+if pendientes_total > 0:
+    with st.expander(
+        f"Ver {pendientes_total} pendiente{'s' if pendientes_total > 1 else ''} de respuesta",
+        expanded=(urgentes_total > 0),
+    ):
+        ESTADO_COLORS = {
+            "PENDIENTE URGENTE": "#7f1f1f",
+            "PENDIENTE":         "#4a3700",
+        }
+        for _, row in df_pendientes_all.iterrows():
+            estado_color = ESTADO_COLORS.get(row["estado_respuesta"], "#333")
+            dias_sin_resp = ""
+            if pd.notna(row["email_date"]):
+                delta_dias = (date.today() - row["email_date"].date()).days
+                dias_sin_resp = f" · **{delta_dias} día{'s' if delta_dias != 1 else ''} sin respuesta**"
+
+            st.markdown(
+                f"""<div style="background:{estado_color};border-radius:8px;
+                    padding:10px 14px;margin:4px 0;">
+                <span style="font-size:13px;color:#fff;">
+                  <b>{row.get('penalidad','—').upper()}</b> ·
+                  {str(row.get('fecha','—'))[:10]} ·
+                  {row.get('ciudad','—')} ·
+                  {row.get('tipo','—')} ·
+                  Patente: <code>{row.get('patente','—')}</code>
+                  {dias_sin_resp}
+                </span></div>""",
+                unsafe_allow_html=True,
+            )
+
+st.divider()
+
+
+# ── KPIs ──────────────────────────────────────────────────────────────────
+total = len(df)
+graves = len(df[df["penalidad"].isin(["Critico", "Grave"])])
+pct_graves = f"{graves/total*100:.0f}%" if total > 0 else "—"
+
+tipo_top = (
+    df["tipo"].value_counts().idxmax() if total > 0 else "—"
+)
+ciudad_top = (
+    df["ciudad"].value_counts().idxmax() if total > 0 else "—"
+)
+patente_top = (
+    df["patente"].value_counts().idxmax() if total > 0 else "—"
+)
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+def kpi_html(label, value, delta="", color="#4fc3f7"):
+    return f"""
+    <div class="kpi-card" style="border-color:{color}">
+        <div class="kpi-label">{label}</div>
+        <div class="kpi-value">{value}</div>
+        <div class="kpi-delta">{delta}</div>
+    </div>
+    """
+
+# Métricas de respuesta
+respondidas    = df["respuesta_nivel"].notna().sum()   if "respuesta_nivel" in df.columns else 0
+pct_resp       = f"{respondidas/total*100:.0f}%" if total > 0 else "—"
+tiempos_validos = df["tiempo_respuesta_min"].dropna() if "tiempo_respuesta_min" in df.columns else pd.Series(dtype=float)
+tiempo_prom    = f"{tiempos_validos.mean():.0f} min" if len(tiempos_validos) > 0 else "—"
+
+with col1:
+    st.markdown(
+        kpi_html("Total Novedades", total, "en el período seleccionado", "#4fc3f7"),
+        unsafe_allow_html=True,
+    )
+with col2:
+    st.markdown(
+        kpi_html("Crítico + Grave", graves, f"{pct_graves} del total", "#d32f2f"),
+        unsafe_allow_html=True,
+    )
+with col3:
+    pendientes_kpi = total - respondidas
+    color_pend = "#d32f2f" if pendientes_kpi > 0 else "#388e3c"
+    st.markdown(
+        kpi_html("Sin respuesta ClicOH", pendientes_kpi, f"{pct_resp} respondidas", color_pend),
+        unsafe_allow_html=True,
+    )
+with col4:
+    tipo_top_short = tipo_top[:28] + "…" if len(str(tipo_top)) > 28 else tipo_top
+    st.markdown(
+        kpi_html("Tipo más frecuente", tipo_top_short, "error más recurrente", "#f57c00"),
+        unsafe_allow_html=True,
+    )
+with col5:
+    st.markdown(
+        kpi_html("Vehículo más reportado", patente_top, "", "#26a69a"),
+        unsafe_allow_html=True,
+    )
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+
+# ── Tendencia histórica ───────────────────────────────────────────────────
+st.markdown('<div class="section-title">📈 Tendencia histórica de novedades</div>', unsafe_allow_html=True)
+
+if not df.empty:
+    df_trend = df.copy()
+    df_trend["semana"] = df_trend["fecha"].dt.to_period("W").apply(lambda p: p.start_time)
+    df_weekly = (
+        df_trend.groupby(["semana", "penalidad"])
+        .size()
+        .reset_index(name="count")
+    )
+    # Ordenar penalidades
+    df_weekly["penalidad"] = pd.Categorical(
+        df_weekly["penalidad"], categories=PENALIDAD_ORDER, ordered=True
+    )
+    df_weekly = df_weekly.sort_values(["semana", "penalidad"])
+
+    fig_trend = px.bar(
+        df_weekly,
+        x="semana",
+        y="count",
+        color="penalidad",
+        color_discrete_map=PENALIDAD_COLORS,
+        category_orders={"penalidad": PENALIDAD_ORDER},
+        labels={"semana": "Semana", "count": "Novedades", "penalidad": "Penalidad"},
+        barmode="stack",
+    )
+    fig_trend.update_layout(
+        height=280,
+        margin=dict(l=10, r=10, t=10, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font_color="#ccc",
+        xaxis=dict(gridcolor="#333"),
+        yaxis=dict(gridcolor="#333"),
+    )
+    st.plotly_chart(fig_trend, use_container_width=True)
+else:
+    st.info("Sin datos para el período seleccionado.")
+
+
+# ── Distribución + Errores persistentes ──────────────────────────────────
+col_pie, col_bar = st.columns([1, 2])
+
+with col_pie:
+    st.markdown('<div class="section-title">🥧 Distribución por penalidad</div>', unsafe_allow_html=True)
+    if not df.empty:
+        pen_counts = (
+            df["penalidad"]
+            .value_counts()
+            .reindex(PENALIDAD_ORDER, fill_value=0)
+            .reset_index()
+        )
+        pen_counts.columns = ["penalidad", "count"]
+        pen_counts = pen_counts[pen_counts["count"] > 0]
+
+        fig_pie = go.Figure(
+            go.Pie(
+                labels=pen_counts["penalidad"],
+                values=pen_counts["count"],
+                marker_colors=[PENALIDAD_COLORS.get(p, "#888") for p in pen_counts["penalidad"]],
+                hole=0.5,
+                textinfo="label+percent",
+                textfont_size=12,
+            )
+        )
+        fig_pie.update_layout(
+            height=280,
+            margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#ccc",
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+with col_bar:
+    st.markdown('<div class="section-title">🔁 Errores más persistentes (top 10)</div>', unsafe_allow_html=True)
+    if not df.empty:
+        tipo_counts = (
+            df.groupby("tipo")
+            .agg(count=("tipo", "count"), penalidad_principal=("penalidad", lambda x: x.mode()[0]))
+            .sort_values("count", ascending=True)
+            .tail(10)
+            .reset_index()
+        )
+        tipo_counts["color"] = tipo_counts["penalidad_principal"].map(
+            lambda p: PENALIDAD_COLORS.get(p, "#888")
+        )
+
+        fig_tipos = go.Figure(
+            go.Bar(
+                y=tipo_counts["tipo"],
+                x=tipo_counts["count"],
+                orientation="h",
+                marker_color=tipo_counts["color"],
+                text=tipo_counts["count"],
+                textposition="outside",
+            )
+        )
+        fig_tipos.update_layout(
+            height=280,
+            margin=dict(l=10, r=10, t=10, b=10),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#ccc",
+            xaxis=dict(gridcolor="#333", title="Ocurrencias"),
+            yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        )
+        st.plotly_chart(fig_tipos, use_container_width=True)
+
+
+# ── Por ciudad + Por infractor ────────────────────────────────────────────
+col_ciudad, col_inf = st.columns(2)
+
+with col_ciudad:
+    st.markdown('<div class="section-title">🌆 Novedades por ciudad</div>', unsafe_allow_html=True)
+    if not df.empty:
+        ciudad_counts = (
+            df.groupby(["ciudad", "penalidad"])
+            .size()
+            .reset_index(name="count")
+            .sort_values("count", ascending=False)
+        )
+        fig_ciudad = px.bar(
+            ciudad_counts,
+            x="ciudad",
+            y="count",
+            color="penalidad",
+            color_discrete_map=PENALIDAD_COLORS,
+            category_orders={"penalidad": PENALIDAD_ORDER},
+            labels={"ciudad": "Ciudad", "count": "Novedades", "penalidad": "Penalidad"},
+        )
+        fig_ciudad.update_layout(
+            height=280,
+            margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#ccc",
+            xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+            yaxis=dict(gridcolor="#333"),
+        )
+        st.plotly_chart(fig_ciudad, use_container_width=True)
+
+with col_inf:
+    st.markdown('<div class="section-title">👤 Por tipo de infractor</div>', unsafe_allow_html=True)
+    if not df.empty:
+        inf_counts = (
+            df["infractor"]
+            .fillna("Sin especificar")
+            .replace("", "Sin especificar")
+            .value_counts()
+            .reset_index()
+        )
+        inf_counts.columns = ["infractor", "count"]
+        fig_inf = go.Figure(
+            go.Pie(
+                labels=inf_counts["infractor"],
+                values=inf_counts["count"],
+                marker_colors=["#1565c0", "#6a1b9a", "#00695c"],
+                hole=0.4,
+                textinfo="label+percent+value",
+            )
+        )
+        fig_inf.update_layout(
+            height=280,
+            margin=dict(l=10, r=10, t=10, b=10),
+            showlegend=False,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#ccc",
+        )
+        st.plotly_chart(fig_inf, use_container_width=True)
+
+
+# ── Última novedad recibida ───────────────────────────────────────────────
+st.markdown('<div class="section-title">🔔 Última novedad recibida</div>', unsafe_allow_html=True)
+
+if not df.empty:
+    ultima = df.sort_values("email_date", ascending=False).iloc[0]
+    pen_color = PENALIDAD_COLORS.get(ultima.get("penalidad", ""), "#888")
+
+    col_a, col_b, col_c = st.columns([1, 2, 2])
+    with col_a:
+        st.markdown(
+            f"""
+            <div style="background:{pen_color}22;border:1px solid {pen_color};
+                        border-radius:10px;padding:16px;text-align:center">
+                <div style="font-size:28px;font-weight:700;color:{pen_color}">
+                    {ultima.get('penalidad','—').upper()}
+                </div>
+                <div style="color:#aaa;font-size:12px;margin-top:4px">
+                    {str(ultima.get('fecha','—'))[:10]}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with col_b:
+        st.markdown(f"**🚗 Patente:** `{ultima.get('patente','—')}`")
+        st.markdown(f"**👤 Driver:** {ultima.get('driver','—')}")
+        st.markdown(f"**🏙️ Ciudad:** {ultima.get('ciudad','—')}  ·  **Milla:** {ultima.get('milla','—')}")
+        st.markdown(f"**⚠️ Tipo:** {ultima.get('tipo','—')}")
+    with col_c:
+        st.markdown(f"**📋 Observación:**")
+        st.info(ultima.get("observacion", "—"))
+
+
+# ── Gráfico de estado de respuestas ──────────────────────────────────────
+if not df.empty and "estado_respuesta" in df.columns:
+    st.markdown('<div class="section-title">📬 Estado de respuesta ClicOH por novedad</div>', unsafe_allow_html=True)
+
+    col_resp1, col_resp2 = st.columns([1, 2])
+
+    RESP_COLORS = {
+        "PENDIENTE URGENTE": "#d32f2f",
+        "PENDIENTE":         "#f57c00",
+        "En gestion":        "#1565c0",
+        "Acuse de recibo":   "#f9a825",
+        "Resuelto":          "#388e3c",
+    }
+    RESP_ORDER = ["PENDIENTE URGENTE", "PENDIENTE", "En gestion", "Acuse de recibo", "Resuelto"]
+    RESP_LABELS = {
+        "PENDIENTE URGENTE": "Pendiente urgente",
+        "PENDIENTE":         "Pendiente",
+        "En gestion":        "En gestion",
+        "Acuse de recibo":   "Acuse de recibo",
+        "Resuelto":          "Resuelto",
+    }
+
+    with col_resp1:
+        resp_counts = (
+            df["estado_respuesta"]
+            .value_counts()
+            .reindex(RESP_ORDER, fill_value=0)
+            .reset_index()
+        )
+        resp_counts.columns = ["estado", "count"]
+        resp_counts = resp_counts[resp_counts["count"] > 0]
+        resp_counts["label"] = resp_counts["estado"].map(RESP_LABELS).fillna(resp_counts["estado"])
+
+        fig_resp = go.Figure(go.Pie(
+            labels=resp_counts["label"],
+            values=resp_counts["count"],
+            marker_colors=[RESP_COLORS.get(e, "#888") for e in resp_counts["estado"]],
+            hole=0.5,
+            textinfo="label+value",
+            textfont_size=12,
+        ))
+        fig_resp.update_layout(
+            height=280, showlegend=False,
+            margin=dict(l=10, r=10, t=10, b=10),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#ccc",
+        )
+        st.plotly_chart(fig_resp, use_container_width=True)
+
+    with col_resp2:
+        # Timeline de respuestas: eje X = fecha novedad, color = estado respuesta
+        df_timeline = df[["fecha", "penalidad", "estado_respuesta",
+                           "tipo", "ciudad", "patente",
+                           "respuesta_responder", "tiempo_respuesta_min"]].copy()
+        df_timeline["fecha_str"] = df_timeline["fecha"].dt.strftime("%Y-%m-%d")
+        df_timeline["estado_label"] = df_timeline["estado_respuesta"].map(RESP_LABELS).fillna(df_timeline["estado_respuesta"])
+        df_timeline["tiempo_str"] = df_timeline["tiempo_respuesta_min"].apply(
+            lambda x: f"{int(x)} min" if pd.notna(x) else "—"
+        )
+
+        fig_tl = px.scatter(
+            df_timeline,
+            x="fecha",
+            y="penalidad",
+            color="estado_label",
+            color_discrete_map={v: RESP_COLORS.get(k, "#888") for k, v in RESP_LABELS.items()},
+            hover_data={"tipo": True, "ciudad": True, "patente": True,
+                        "tiempo_str": True, "fecha_str": True,
+                        "fecha": False, "penalidad": False, "estado_label": False},
+            labels={"fecha": "Fecha", "penalidad": "Penalidad", "estado_label": "Estado"},
+            size_max=14,
+        )
+        fig_tl.update_traces(marker_size=14)
+        fig_tl.update_layout(
+            height=280, margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#ccc",
+            xaxis=dict(gridcolor="#333"),
+            yaxis=dict(gridcolor="#333"),
+        )
+        st.plotly_chart(fig_tl, use_container_width=True)
+
+
+# ── Tabla completa ────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">📋 Registro completo de novedades</div>', unsafe_allow_html=True)
+
+# Icono de estado para la tabla
+RESP_EMOJI = {
+    "PENDIENTE URGENTE": "🔴 Pendiente urgente",
+    "PENDIENTE":         "🟡 Pendiente",
+    "En gestion":        "🔵 En gestion",
+    "Acuse de recibo":   "🟠 Acuse de recibo",
+    "Resuelto":          "🟢 Resuelto",
+}
+
+if not df.empty:
+    cols_base = ["fecha", "ciudad", "tipo", "penalidad", "patente", "driver"]
+    cols_resp = ["estado_respuesta", "respuesta_responder", "respuesta_fecha",
+                 "tiempo_respuesta_min", "respuesta_texto"]
+    cols_extra = ["milla", "operacion", "infractor", "documento", "observacion",
+                  "email_type", "sender"]
+
+    available = [c for c in cols_base + cols_resp + cols_extra if c in df.columns]
+    df_display = df[available].copy()
+
+    df_display["fecha"] = df_display["fecha"].dt.strftime("%Y-%m-%d")
+    if "respuesta_fecha" in df_display.columns:
+        df_display["respuesta_fecha"] = df_display["respuesta_fecha"].dt.strftime("%Y-%m-%d").fillna("—")
+    if "estado_respuesta" in df_display.columns:
+        df_display["estado_respuesta"] = df_display["estado_respuesta"].map(RESP_EMOJI).fillna(df_display["estado_respuesta"])
+    if "tiempo_respuesta_min" in df_display.columns:
+        df_display["tiempo_respuesta_min"] = df_display["tiempo_respuesta_min"].apply(
+            lambda x: f"{int(x)} min" if pd.notna(x) else "—"
+        )
+
+    def color_penalidad(val):
+        colors = {
+            "Critico": "background-color: #7f1f1f; color: #fff",
+            "Grave":   "background-color: #7a3a00; color: #fff",
+            "Moderada":"background-color: #6b5800; color: #fff",
+            "Leve":    "background-color: #1b4a1b; color: #fff",
+        }
+        return colors.get(val, "")
+
+    styled = df_display.style.applymap(color_penalidad, subset=["penalidad"])
+
+    col_cfg = {
+        "fecha":               st.column_config.TextColumn("Fecha", width="small"),
+        "ciudad":              st.column_config.TextColumn("Ciudad", width="small"),
+        "tipo":                st.column_config.TextColumn("Tipo de novedad", width="large"),
+        "penalidad":           st.column_config.TextColumn("Penalidad", width="small"),
+        "patente":             st.column_config.TextColumn("Patente", width="small"),
+        "driver":              st.column_config.TextColumn("Driver", width="medium"),
+        "estado_respuesta":    st.column_config.TextColumn("Estado respuesta", width="medium"),
+        "respuesta_responder": st.column_config.TextColumn("Respondio", width="medium"),
+        "respuesta_fecha":     st.column_config.TextColumn("Fecha respuesta", width="small"),
+        "tiempo_respuesta_min":st.column_config.TextColumn("Tiempo resp.", width="small"),
+        "respuesta_texto":     st.column_config.TextColumn("Texto respuesta", width="large"),
+        "milla":               st.column_config.TextColumn("Milla", width="small"),
+        "operacion":           st.column_config.TextColumn("Op.", width="small"),
+        "infractor":           st.column_config.TextColumn("Infractor", width="small"),
+        "documento":           st.column_config.TextColumn("Doc.", width="small"),
+        "observacion":         st.column_config.TextColumn("Observacion", width="large"),
+        "email_type":          st.column_config.TextColumn("Reporte", width="small"),
+        "sender":              st.column_config.TextColumn("Enviado por", width="small"),
+    }
+
+    st.dataframe(styled, use_container_width=True, height=420, column_config=col_cfg)
+
+    csv = df_display.to_csv(index=False, encoding="utf-8-sig")
+    st.download_button(
+        label="Descargar CSV",
+        data=csv,
+        file_name=f"novedades_mlp_{date.today()}.csv",
+        mime="text/csv",
+    )
+else:
+    st.info("No hay novedades para el período y filtros seleccionados.")
+
+
+# ── Footer ────────────────────────────────────────────────────────────────
+st.divider()
+st.caption(
+    "Novedades MLP · Logysto — Dashboard automatizado · "
+    "Datos actualizados desde Gmail · "
+    f"Generado el {date.today()}"
+)
