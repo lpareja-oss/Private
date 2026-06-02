@@ -130,13 +130,14 @@ with st.sidebar:
 
     df_all = get_all_novedades()
 
-    # Rango de fechas
-    min_date = df_all["fecha"].min()
-    max_date = df_all["fecha"].max()
+    # Rango de fechas — filtrar por email_date (cuándo llegó el correo)
+    min_date = df_all["email_date"].min()
+    max_date = df_all["email_date"].max()
     if pd.isna(min_date):
         min_date = date.today() - timedelta(days=90)
         max_date = date.today()
 
+    st.caption("📧 Filtra por fecha de recepción del correo")
     date_from = st.date_input(
         "Desde",
         value=min_date.date() if hasattr(min_date, "date") else min_date,
@@ -165,9 +166,9 @@ with st.sidebar:
 
 # ── Aplicar filtros ───────────────────────────────────────────────────────
 df = df_all.copy()
-df = df[df["fecha"].notna()]
-df = df[df["fecha"].dt.date >= date_from]
-df = df[df["fecha"].dt.date <= date_to]
+df = df[df["email_date"].notna()]
+df = df[df["email_date"].dt.date >= date_from]
+df = df[df["email_date"].dt.date <= date_to]
 if ciudad_sel != "Todas":
     df = df[df["ciudad"] == ciudad_sel]
 if penalidad_sel != "Todas":
@@ -184,7 +185,7 @@ col_titulo, col_logo = st.columns([5, 1])
 with col_titulo:
     st.markdown("# 🚨 Novedades")
     st.caption(
-        f"Período analizado: **{date_from}** → **{date_to}** · "
+        f"Correos recibidos: **{date_from}** → **{date_to}** · "
         f"{len(df)} novedades encontradas"
     )
 with col_logo:
@@ -269,7 +270,8 @@ st.markdown('<div class="section-title">📈 Tendencia histórica de novedades</
 
 if not df.empty:
     df_trend = df.copy()
-    df_trend["semana"] = df_trend["fecha"].dt.to_period("W").apply(lambda p: p.start_time)
+    # Agrupar por semana del correo recibido (no del incidente)
+    df_trend["semana"] = df_trend["email_date"].dt.to_period("W").apply(lambda p: p.start_time)
     df_weekly = (
         df_trend.groupby(["semana", "penalidad"])
         .size()
@@ -450,15 +452,23 @@ if not df.empty:
 
     col_a, col_b, col_c = st.columns([1, 2, 2])
     with col_a:
+        email_dt_str    = str(ultima.get("email_date", "—"))[:10]
+        incidente_str   = str(ultima.get("fecha", "—"))[:10]
         st.markdown(
             f"""
             <div style="background:{pen_color}22;border:1px solid {pen_color};
                         border-radius:10px;padding:16px;text-align:center">
-                <div style="font-size:28px;font-weight:700;color:{pen_color}">
+                <div style="font-size:26px;font-weight:700;color:{pen_color}">
                     {ultima.get('penalidad','—').upper()}
                 </div>
-                <div style="color:#aaa;font-size:12px;margin-top:4px">
-                    {str(ultima.get('fecha','—'))[:10]}
+                <div style="color:#ccc;font-size:12px;margin-top:8px">
+                    📧 Correo recibido
+                </div>
+                <div style="color:#fff;font-size:14px;font-weight:600">
+                    {email_dt_str}
+                </div>
+                <div style="color:#888;font-size:11px;margin-top:6px">
+                    📅 Incidente: {incidente_str}
                 </div>
             </div>
             """,
@@ -614,7 +624,7 @@ RESP_EMOJI = {
 }
 
 if not df.empty:
-    cols_base = ["fecha", "ciudad", "tipo", "penalidad", "patente", "driver"]
+    cols_base = ["email_date", "fecha", "ciudad", "tipo", "penalidad", "patente", "driver"]
     cols_resp = ["estado_respuesta", "respuesta_responder", "respuesta_fecha",
                  "tiempo_respuesta_min", "respuesta_texto"]
     cols_extra = ["milla", "operacion", "infractor", "documento", "observacion",
@@ -623,7 +633,9 @@ if not df.empty:
     available = [c for c in cols_base + cols_resp + cols_extra if c in df.columns]
     df_display = df[available].copy()
 
-    df_display["fecha"] = df_display["fecha"].dt.strftime("%Y-%m-%d")
+    if "email_date" in df_display.columns:
+        df_display["email_date"] = df_display["email_date"].dt.strftime("%Y-%m-%d")
+    df_display["fecha"] = df_display["fecha"].dt.strftime("%Y-%m-%d").fillna("—")
     if "respuesta_fecha" in df_display.columns:
         df_display["respuesta_fecha"] = df_display["respuesta_fecha"].dt.strftime("%Y-%m-%d").fillna("—")
     if "estado_respuesta" in df_display.columns:
@@ -645,7 +657,8 @@ if not df.empty:
     styled = df_display.style.map(color_penalidad, subset=["penalidad"])
 
     col_cfg = {
-        "fecha":               st.column_config.TextColumn("Fecha", width="small"),
+        "email_date":          st.column_config.TextColumn("📧 Fecha correo", width="small"),
+        "fecha":               st.column_config.TextColumn("📅 Fecha incidente", width="small"),
         "ciudad":              st.column_config.TextColumn("Ciudad", width="small"),
         "tipo":                st.column_config.TextColumn("Tipo de novedad", width="large"),
         "penalidad":           st.column_config.TextColumn("Penalidad", width="small"),
