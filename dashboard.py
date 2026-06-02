@@ -68,20 +68,27 @@ st.markdown(
 # ── Inicializar DB (seed si está vacía) ───────────────────────────────────
 init_db()
 
-# ── Auto-sync en segundo plano (cada 10 minutos) ──────────────────────────
-_sync_lock = threading.Lock()
+# ── Sync programado: 10 AM y 3 PM hora Colombia (UTC-5) ──────────────────
+_HORAS_SYNC = {10, 15}   # 10 AM y 3 PM
+_sync_lock  = threading.Lock()
 
 def _auto_sync():
-    """Ejecuta sync Gmail en background si pasaron más de 10 minutos."""
+    """Corre sync solo en las horas programadas; ignora si ya sincronizó en esa ventana."""
+    # Convertir hora actual UTC → Colombia (UTC-5)
+    hora_col = (datetime.utcnow().hour - 5) % 24
+    if hora_col not in _HORAS_SYNC:
+        return  # No es hora de sincronizar
+
     if not _sync_lock.acquire(blocking=False):
-        return  # ya hay un sync corriendo
+        return  # Otro sync ya está corriendo
     try:
         last = get_last_sync()
         if last != "Nunca":
             try:
                 ts = datetime.strptime(last.split("  ")[0], "%Y-%m-%d %H:%M")
-                if (datetime.now() - ts).total_seconds() < 600:
-                    return  # synced hace menos de 10 min
+                # Si ya sincronizamos en la última hora, no volver a hacerlo
+                if (datetime.utcnow() - ts).total_seconds() < 3600:
+                    return
             except Exception:
                 pass
         from sync_imap import sync_emails
@@ -93,8 +100,8 @@ def _auto_sync():
 
 threading.Thread(target=_auto_sync, daemon=True).start()
 
-# Refrescar la página automáticamente cada 10 minutos
-st_autorefresh(interval=600_000, key="autorefresh")
+# Refrescar la página cada 15 minutos para no perderse las ventanas de sync
+st_autorefresh(interval=900_000, key="autorefresh")
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────
