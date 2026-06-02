@@ -200,6 +200,29 @@ def _detect_email_type(subject: str) -> str:
     return "SEMANAL" if "SEMANAL" in subject.upper() else "GRAVE_CRITICO"
 
 
+def _get_thread_root(msg, own_msg_id: str) -> str:
+    """
+    Devuelve el Message-ID raíz del hilo de conversación.
+
+    Estrategia (de mayor a menor prioridad):
+    1. References header → primer ID = raíz del hilo completo.
+       Todos los correos de una cadena A→B→C→respuesta comparten la misma raíz.
+    2. In-Reply-To → mensaje inmediatamente anterior.
+    3. Propio Message-ID → es el correo raíz.
+
+    Esto garantiza que dos novedades del mismo hilo Y la respuesta de ClicOH
+    compartan el mismo thread_id aunque la respuesta llegue como Reply al
+    mensaje más reciente, no al primero.
+    """
+    references = msg.get("References", "").strip()
+    if references:
+        return references.split()[0]   # primer ID de la cadena = raíz
+    in_reply_to = msg.get("In-Reply-To", "").strip()
+    if in_reply_to:
+        return in_reply_to
+    return own_msg_id
+
+
 def _clasificar_respuesta(texto: str) -> str:
     """
     Clasifica el nivel de respuesta de ClicOH a partir del texto del correo.
@@ -344,10 +367,9 @@ def sync_emails() -> dict:
         except Exception:
             email_date = datetime.today().strftime("%Y-%m-%d")
 
-        subject     = _decode_str(msg.get("Subject", ""))
-        email_type  = _detect_email_type(subject)
-        in_reply_to = msg.get("In-Reply-To", "").strip()
-        thread_id   = in_reply_to if in_reply_to else gmail_msg_id
+        subject    = _decode_str(msg.get("Subject", ""))
+        email_type = _detect_email_type(subject)
+        thread_id  = _get_thread_root(msg, gmail_msg_id)
 
         html_body = _get_html_body(msg)
         if not html_body:
@@ -409,9 +431,8 @@ def sync_emails() -> dict:
             reply_dt   = datetime.today()
             reply_date = reply_dt.strftime("%Y-%m-%d")
 
-        # Relacionar con thread original
-        in_reply_to = msg.get("In-Reply-To", "").strip()
-        thread_id   = in_reply_to if in_reply_to else gmail_msg_id
+        # Relacionar con thread original usando la raíz del hilo
+        thread_id = _get_thread_root(msg, gmail_msg_id)
 
         # Calcular tiempo de respuesta
         orig_date_str = thread_dates.get(thread_id)
