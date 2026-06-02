@@ -168,7 +168,7 @@ if tipo_email_sel != "Todos":
 
 
 # ── Encabezado con logo ───────────────────────────────────────────────────
-_logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo.png")
+_logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo-clicoh.png")
 col_titulo, col_logo = st.columns([5, 1])
 with col_titulo:
     st.markdown("# 🚨 Novedades MLP · Logysto")

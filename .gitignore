@@ -8,6 +8,10 @@ config_sync.txt
 # Secretos de Streamlit (local)
 .streamlit/secrets.toml
 
+# Windows
+desktop.ini
+Thumbs.db
+
 # Python
 __pycache__/
 *.pyc
