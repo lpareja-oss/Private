@@ -372,22 +372,9 @@ def init_db() -> None:
             conn.commit()
             count = conn.execute("SELECT COUNT(*) FROM novedades").fetchone()[0]
 
-        if count == 0:
-            insert_novedades(SEED_NOVEDADES, conn=conn)
-            if _is_pg():
-                cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO sync_log (emails_processed, novedades_added) VALUES (%s, %s)",
-                    (len(SEED_NOVEDADES), len(SEED_NOVEDADES)),
-                )
-            else:
-                conn.execute(
-                    "INSERT INTO sync_log (emails_processed, novedades_added) VALUES (?,?)",
-                    (len(SEED_NOVEDADES), len(SEED_NOVEDADES)),
-                )
-            conn.commit()
-
-        insert_respuestas(SEED_RESPUESTAS, conn=conn)
+        # Seed desactivado — los datos vienen del sync IMAP real.
+        # El seed manual causaba duplicados porque usaba thread_id como message_id
+        # mientras el sync IMAP usa el Message-ID real del correo (<CA...@mail.gmail.com>).
         conn.commit()
     finally:
         conn.close()
