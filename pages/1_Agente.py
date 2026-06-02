@@ -301,7 +301,8 @@ def resumen_estadisticas() -> str:
     """
     Retorna un resumen estadístico completo de las novedades:
     totales, distribución por penalidad, ciudad, tipo de infractor,
-    los 5 tipos de novedad más frecuentes y estado de respuestas ClicOH.
+    los 5 tipos más frecuentes, los 5 vehículos (patentes) más reportados
+    y estado de respuestas ClicOH.
 
     Returns:
         JSON con las estadísticas.
@@ -309,14 +310,16 @@ def resumen_estadisticas() -> str:
     df      = get_all_novedades()
     df_pend = get_pendientes()
     return json.dumps({
-        "total_novedades":      len(df),
-        "pendientes_respuesta": len(df_pend),
-        "pendientes_urgentes":  len(df_pend[df_pend["penalidad"].isin(["Critico", "Grave"])]),
-        "por_penalidad":        df["penalidad"].value_counts().to_dict(),
-        "por_ciudad":           df["ciudad"].value_counts().to_dict(),
-        "por_infractor":        df["infractor"].value_counts().to_dict(),
-        "tipos_mas_frecuentes": df["tipo"].value_counts().head(5).to_dict(),
-        "por_estado_respuesta": df["estado_respuesta"].value_counts().to_dict(),
+        "total_novedades":        len(df),
+        "pendientes_respuesta":   len(df_pend),
+        "pendientes_urgentes":    len(df_pend[df_pend["penalidad"].isin(["Critico", "Grave"])]),
+        "por_penalidad":          df["penalidad"].value_counts().to_dict(),
+        "por_ciudad":             df["ciudad"].value_counts().to_dict(),
+        "por_infractor":          df["infractor"].value_counts().to_dict(),
+        "tipos_mas_frecuentes":   df["tipo"].value_counts().head(5).to_dict(),
+        "vehiculos_mas_reportados": df["patente"].value_counts().head(5).to_dict(),
+        "drivers_mas_reportados": df["driver"].value_counts().head(5).to_dict(),
+        "por_estado_respuesta":   df["estado_respuesta"].value_counts().to_dict(),
         "periodo": {
             "desde": str(df["fecha"].min())[:10],
             "hasta": str(df["fecha"].max())[:10],
@@ -379,7 +382,13 @@ CONTEXTO:
 - Severidad: Crítico > Grave > Moderada > Leve
 - Destinatarios ClicOH: jorozco@clicoh.com y lpareja@clicoh.com
 
-CUANDO GENERES UN BORRADOR DE CORREO usa EXACTAMENTE este formato (con los delimitadores):
+REGLAS IMPORTANTES:
+1. Cuando el usuario haga una PREGUNTA sobre datos (estadísticas, patentes, ciudades, etc.), responde directamente con la información. NO generes correos.
+2. SOLO genera un borrador de correo cuando el usuario lo pida EXPLÍCITAMENTE con palabras como "redactar", "borrador", "responder", "sugerir respuesta" o cuando haga clic en el botón "Sugerir".
+3. Usa SIEMPRE las herramientas disponibles para consultar los datos reales antes de responder.
+4. Sé conciso en análisis, detallado solo en borradores de correo.
+
+CUANDO GENERES UN BORRADOR DE CORREO (solo si te lo piden), usa EXACTAMENTE este formato (con los delimitadores):
 
 ---INICIO DEL BORRADOR---
 Asunto: Re: [asunto original]
@@ -456,10 +465,10 @@ def _run_gemini(messages: list, api_key: str) -> tuple[str, list]:
 
 
 # ── Backend Groq ──────────────────────────────────────────────────────────
-# Modelos por orden de preferencia: 8b-instant tiene 20k TPM (vs 6k del 70b)
+# Modelos por orden de preferencia: 70b primero (mejor calidad), 8b como fallback
 _GROQ_MODELS = [
-    "llama-3.1-8b-instant",       # 20 000 TPM — rápido, cuota alta
-    "llama-3.3-70b-versatile",    # 6 000 TPM  — más capaz, fallback si 8b falla
+    "llama-3.3-70b-versatile",    # 6 000 TPM  — mejor calidad, tool calling preciso
+    "llama-3.1-8b-instant",       # 20 000 TPM — fallback si 70b está limitado
 ]
 
 def _run_groq(messages: list, api_key: str) -> tuple[str, list]:
