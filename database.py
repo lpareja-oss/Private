@@ -8,6 +8,7 @@ Detecta automáticamente el backend según la variable DATABASE_URL.
 import os
 import sqlite3
 import pandas as pd
+from datetime import date as _date
 
 # ── Detección de backend ──────────────────────────────────────────────────
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "novedades.db")
@@ -521,21 +522,31 @@ def get_all_novedades() -> pd.DataFrame:
     df["penalidad"]       = df["penalidad"].str.strip().str.capitalize()
 
     def _estado(row):
+        """
+        Tres estados posibles:
+          PENDIENTE         → sin respuesta, correo recibido hace menos de 24 h (hoy)
+          PENDIENTE URGENTE → sin respuesta, correo recibido hace más de 24 h (ayer o antes)
+          Respondido        → cualquier respuesta de ClicOH registrada
+        """
         if pd.isna(row.get("respuesta_nivel")) or row.get("respuesta_nivel") == "":
-            pen = row.get("penalidad", "")
-            return "PENDIENTE URGENTE" if pen in ("Critico", "Grave") else "PENDIENTE"
-        return row["respuesta_nivel"]
+            email_dt = row.get("email_date")
+            if pd.notna(email_dt):
+                dias = (_date.today() - pd.Timestamp(email_dt).date()).days
+                return "PENDIENTE URGENTE" if dias >= 1 else "PENDIENTE"
+            return "PENDIENTE URGENTE"   # fecha desconocida → tratar como urgente
+        return "Respondido"
 
     df["estado_respuesta"] = df.apply(_estado, axis=1)
     return df
 
 
 def get_pendientes() -> pd.DataFrame:
-    """Novedades sin respuesta de ClicOH, ordenadas por urgencia."""
+    """Novedades sin respuesta de ClicOH, ordenadas por antigüedad (más vieja primero)."""
     df = get_all_novedades()
     if df.empty:
         return df
     pendientes = df[df["respuesta_nivel"].isna()].copy()
-    orden = {"Critico": 0, "Grave": 1, "Moderada": 2, "Leve": 3}
-    pendientes["_orden"] = pendientes["penalidad"].map(orden).fillna(9)
+    # Primero PENDIENTE URGENTE (>24 h), luego PENDIENTE (<24 h); dentro de cada grupo por fecha
+    orden_estado = {"PENDIENTE URGENTE": 0, "PENDIENTE": 1}
+    pendientes["_orden"] = pendientes["estado_respuesta"].map(orden_estado).fillna(9)
     return pendientes.sort_values(["_orden", "email_date"]).drop(columns=["_orden"])

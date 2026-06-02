@@ -208,7 +208,9 @@ st.divider()
 
 # ── Variables de pendientes (usadas más abajo) ────────────────────────────
 df_pendientes_all   = get_pendientes()
-pendientes_urgentes = df_pendientes_all[df_pendientes_all["penalidad"].isin(["Critico", "Grave"])]
+pendientes_urgentes = df_pendientes_all[
+    df_pendientes_all["estado_respuesta"] == "PENDIENTE URGENTE"
+] if "estado_respuesta" in df_pendientes_all.columns else df_pendientes_all.iloc[0:0]
 pendientes_total    = len(df_pendientes_all)
 urgentes_total      = len(pendientes_urgentes)
 
@@ -505,17 +507,13 @@ if not df.empty and "estado_respuesta" in df.columns:
     RESP_COLORS = {
         "PENDIENTE URGENTE": BRAND_PURPLE,
         "PENDIENTE":         BRAND_LAVENDER,
-        "En gestion":        BRAND_AQUA,
-        "Acuse de recibo":   BRAND_SOFT,
-        "Resuelto":          BRAND_TEAL,
+        "Respondido":        BRAND_AQUA,
     }
-    RESP_ORDER = ["PENDIENTE URGENTE", "PENDIENTE", "En gestion", "Acuse de recibo", "Resuelto"]
+    RESP_ORDER  = ["PENDIENTE URGENTE", "PENDIENTE", "Respondido"]
     RESP_LABELS = {
-        "PENDIENTE URGENTE": "Pendiente urgente",
-        "PENDIENTE":         "Pendiente",
-        "En gestion":        "En gestion",
-        "Acuse de recibo":   "Acuse de recibo",
-        "Resuelto":          "Resuelto",
+        "PENDIENTE URGENTE": "Pendiente urgente (+24 h)",
+        "PENDIENTE":         "Pendiente (< 24 h)",
+        "Respondido":        "Respondido",
     }
 
     with col_resp1:
@@ -580,27 +578,28 @@ if not df.empty and "estado_respuesta" in df.columns:
         st.plotly_chart(fig_tl, use_container_width=True)
 
 
-# ── Novedades críticas sin respuesta ─────────────────────────────────────
+# ── Pendientes urgentes (+24 h sin respuesta) ─────────────────────────────
 st.divider()
+NIVEL_COL = {"Critico": BRAND_PURPLE, "Grave": BRAND_LAVENDER, "Moderada": BRAND_AQUA, "Leve": BRAND_TEAL}
+
 if urgentes_total > 0:
     st.markdown(
-        f'<div class="section-title" style="color:#d32f2f">🔴 Novedades CRÍTICAS/GRAVES sin respuesta ClicOH ({urgentes_total})</div>',
+        f'<div class="section-title" style="color:{BRAND_PURPLE}">⏰ Pendientes urgentes — más de 24 h sin respuesta ({urgentes_total})</div>',
         unsafe_allow_html=True,
     )
-    NIVEL_COL = {"Critico": BRAND_PURPLE, "Grave": BRAND_LAVENDER, "Moderada": BRAND_AQUA, "Leve": BRAND_TEAL}
     for _, row in pendientes_urgentes.sort_values("email_date").iterrows():
-        color = NIVEL_COL.get(row.get("penalidad", ""), "#555")
+        pen   = row.get("penalidad", "")
+        color = NIVEL_COL.get(pen, "#555")
         dias  = (date.today() - row["email_date"].date()).days if pd.notna(row.get("email_date")) else "?"
+        email_dt = str(row.get("email_date", "—"))[:10]
         st.markdown(
             f"""<div style="background:#1a1a2e;border-left:5px solid {color};
                 border-radius:8px;padding:12px 16px;margin:6px 0;
                 display:flex;justify-content:space-between;align-items:center">
               <div>
-                <span style="color:{color};font-weight:700;font-size:13px">
-                  {row.get('penalidad','').upper()}
-                </span>
+                <span style="color:{color};font-weight:700;font-size:13px">{pen.upper()}</span>
                 <span style="color:#aaa;font-size:12px">
-                  &nbsp;·&nbsp;{str(row.get('fecha','—'))[:10]}
+                  &nbsp;·&nbsp;📧 {email_dt}
                   &nbsp;·&nbsp;{row.get('ciudad','—')}
                 </span><br>
                 <span style="color:#eee;font-size:14px">{row.get('tipo','—')}</span><br>
@@ -609,17 +608,38 @@ if urgentes_total > 0:
                   &nbsp;·&nbsp;{row.get('driver','—')}
                 </span>
               </div>
-              <div style="text-align:right;color:#ef9a9a;font-size:13px;font-weight:600;min-width:90px">
+              <div style="text-align:right;color:{BRAND_PURPLE};font-size:15px;font-weight:700;min-width:90px">
                 {dias} día{'s' if dias != 1 else ''}<br>
                 <span style="color:#777;font-size:11px;font-weight:400">sin respuesta</span>
               </div>
             </div>""",
             unsafe_allow_html=True,
         )
-elif pendientes_total > 0:
-    st.warning(f"📬 **{pendientes_total} novedades pendientes de respuesta** (ninguna crítica/grave).")
-else:
-    st.success("✅ Todas las novedades tienen respuesta de ClicOH.")
+
+# ── Pendientes recientes (< 24 h) ─────────────────────────────────────────
+pendientes_recientes = df_pendientes_all[
+    df_pendientes_all["estado_respuesta"] == "PENDIENTE"
+] if "estado_respuesta" in df_pendientes_all.columns else df_pendientes_all.iloc[0:0]
+
+if len(pendientes_recientes) > 0:
+    with st.expander(f"🟡 Pendientes recientes — menos de 24 h ({len(pendientes_recientes)})", expanded=False):
+        for _, row in pendientes_recientes.sort_values("email_date", ascending=False).iterrows():
+            pen   = row.get("penalidad", "")
+            color = NIVEL_COL.get(pen, "#555")
+            email_dt = str(row.get("email_date", "—"))[:10]
+            st.markdown(
+                f"""<div style="background:#1a1a2e;border-left:4px solid {color};
+                    border-radius:8px;padding:10px 14px;margin:4px 0">
+                  <span style="color:{color};font-weight:700;font-size:12px">{pen.upper()}</span>
+                  <span style="color:#aaa;font-size:12px"> · 📧 {email_dt} · {row.get('ciudad','—')}</span><br>
+                  <span style="color:#eee;font-size:13px">{row.get('tipo','—')}</span>
+                  <span style="color:#777;font-size:12px"> — {row.get('patente','—')}</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+if urgentes_total == 0 and len(pendientes_recientes) == 0:
+    st.success("✅ Todas las novedades del período tienen respuesta de ClicOH.")
 
 st.divider()
 
@@ -628,11 +648,9 @@ st.markdown('<div class="section-title">📋 Registro completo de novedades</div
 
 # Icono de estado para la tabla
 RESP_EMOJI = {
-    "PENDIENTE URGENTE": "🔴 Pendiente urgente",
-    "PENDIENTE":         "🟡 Pendiente",
-    "En gestion":        "🔵 En gestion",
-    "Acuse de recibo":   "🟠 Acuse de recibo",
-    "Resuelto":          "🟢 Resuelto",
+    "PENDIENTE URGENTE": "🔴 Pendiente urgente (+24 h)",
+    "PENDIENTE":         "🟡 Pendiente (< 24 h)",
+    "Respondido":        "✅ Respondido",
 }
 
 if not df.empty:
