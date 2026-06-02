@@ -22,6 +22,10 @@ def _get_db_url() -> str:
     # Supabase a veces entrega "postgres://" — psycopg2 requiere "postgresql://"
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
+    # Asegurar SSL para conexiones en la nube (requerido por Supabase)
+    if url and "sslmode" not in url:
+        sep = "&" if "?" in url else "?"
+        url += f"{sep}sslmode=require"
     return url
 
 
