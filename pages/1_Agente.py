@@ -13,12 +13,17 @@ from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Inyectar DATABASE_URL desde Streamlit secrets (Streamlit Cloud)
+# Inyectar secrets de Streamlit Cloud en variables de entorno
 try:
-    if "DATABASE_URL" in st.secrets and not os.environ.get("DATABASE_URL"):
-        os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
+    for _k in ("DATABASE_URL", "GROQ_API_KEY", "GEMINI_API_KEY",
+               "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+        if _k in st.secrets and not os.environ.get(_k):
+            os.environ[_k] = st.secrets[_k]
 except Exception:
     pass
+
+# Modo cloud: DATABASE_URL presente → API keys vienen de secrets, no del usuario
+_IS_CLOUD = bool(os.environ.get("DATABASE_URL"))
 
 from database import init_db, get_all_novedades, get_pendientes
 
@@ -106,7 +111,19 @@ PROVIDERS = {
 
 
 def leer_config() -> dict:
-    cfg = {"provider": "gemini"}
+    cfg = {"provider": "groq"}
+    # 1. Variables de entorno (Streamlit Cloud secrets)
+    for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+        if os.environ.get(k):
+            cfg[k] = os.environ[k]
+    # Determinar proveedor por defecto según qué key está disponible
+    if cfg.get("GROQ_API_KEY"):
+        cfg["provider"] = "groq"
+    elif cfg.get("OPENROUTER_API_KEY"):
+        cfg["provider"] = "openrouter"
+    elif cfg.get("GEMINI_API_KEY"):
+        cfg["provider"] = "gemini"
+    # 2. Archivo local (sobreescribe si existe)
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r") as f:
             for line in f:
@@ -125,63 +142,71 @@ def guardar_config(cfg: dict):
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🤖 NOVA · Configuración")
+    st.markdown("## 🤖 NOVA · Asistente IA")
     st.divider()
 
     cfg = leer_config()
 
-    # Selector de proveedor
-    provider_options = list(PROVIDERS.keys())
-    provider_labels  = [
-        f"{PROVIDERS[p]['label']}  [{PROVIDERS[p]['badge']}]"
-        for p in provider_options
-    ]
-    default_idx = provider_options.index(cfg.get("provider", "gemini"))
-    selected_idx = st.selectbox(
-        "Proveedor de IA",
-        range(len(provider_options)),
-        index=default_idx,
-        format_func=lambda i: provider_labels[i],
-    )
-    selected_provider = provider_options[selected_idx]
-    pinfo = PROVIDERS[selected_provider]
-
-    if selected_provider != cfg.get("provider"):
-        cfg["provider"] = selected_provider
-        guardar_config(cfg)
-
-    # API Key del proveedor seleccionado
-    key_cfg_name = f"{selected_provider.upper()}_API_KEY"
-    current_key  = cfg.get(key_cfg_name, "")
-
-    st.markdown(f"**API Key — {pinfo['label']}**")
-    st.caption(pinfo["key_help"])
-
-    if not current_key:
-        with st.form(f"form_{selected_provider}"):
-            new_key = st.text_input(
-                "API Key",
-                type="password",
-                placeholder=f"{pinfo['key_prefix']}...",
-            )
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.form_submit_button("Guardar", use_container_width=True, type="primary"):
-                    if new_key:
-                        cfg[key_cfg_name] = new_key
-                        guardar_config(cfg)
-                        st.success("Guardada ✅")
-                        st.rerun()
-            with c2:
-                if st.form_submit_button("Obtener key", use_container_width=True):
-                    st.markdown(f"[Abrir →]({pinfo['key_url']})")
+    if _IS_CLOUD:
+        # Modo público: no mostrar configuración de API
+        provider_actual_key = cfg.get("provider", "groq")
+        pinfo = PROVIDERS.get(provider_actual_key, PROVIDERS["groq"])
+        st.markdown(
+            f'<span style="background:{pinfo["badge_color"]};color:#fff;'
+            f'padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600">'
+            f'✓ {pinfo["label"]}</span>',
+            unsafe_allow_html=True,
+        )
+        selected_provider = provider_actual_key
     else:
-        masked = current_key[:8] + "..." + current_key[-4:]
-        st.success(f"Configurada: `{masked}`")
-        if st.button("Cambiar key", use_container_width=True):
-            cfg.pop(key_cfg_name, None)
+        # Modo local/admin: mostrar selector y form de API key
+        provider_options = list(PROVIDERS.keys())
+        provider_labels  = [
+            f"{PROVIDERS[p]['label']}  [{PROVIDERS[p]['badge']}]"
+            for p in provider_options
+        ]
+        default_idx = provider_options.index(cfg.get("provider", "groq"))
+        selected_idx = st.selectbox(
+            "Proveedor de IA",
+            range(len(provider_options)),
+            index=default_idx,
+            format_func=lambda i: provider_labels[i],
+        )
+        selected_provider = provider_options[selected_idx]
+        pinfo = PROVIDERS[selected_provider]
+
+        if selected_provider != cfg.get("provider"):
+            cfg["provider"] = selected_provider
             guardar_config(cfg)
-            st.rerun()
+
+        key_cfg_name = f"{selected_provider.upper()}_API_KEY"
+        current_key  = cfg.get(key_cfg_name, "")
+
+        st.markdown(f"**API Key — {pinfo['label']}**")
+        st.caption(pinfo["key_help"])
+
+        if not current_key:
+            with st.form(f"form_{selected_provider}"):
+                new_key = st.text_input("API Key", type="password",
+                                        placeholder=f"{pinfo['key_prefix']}...")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.form_submit_button("Guardar", use_container_width=True, type="primary"):
+                        if new_key:
+                            cfg[key_cfg_name] = new_key
+                            guardar_config(cfg)
+                            st.success("Guardada ✅")
+                            st.rerun()
+                with c2:
+                    if st.form_submit_button("Obtener key", use_container_width=True):
+                        st.markdown(f"[Abrir →]({pinfo['key_url']})")
+        else:
+            masked = current_key[:8] + "..." + current_key[-4:]
+            st.success(f"Configurada: `{masked}`")
+            if st.button("Cambiar key", use_container_width=True):
+                cfg.pop(key_cfg_name, None)
+                guardar_config(cfg)
+                st.rerun()
 
     st.divider()
     st.markdown("### 📊 Estado actual")
@@ -676,8 +701,8 @@ def ejecutar_agente(messages: list) -> tuple[str, list]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 cfg = leer_config()
-provider_actual = cfg.get("provider", "gemini")
-pinfo_actual    = PROVIDERS[provider_actual]
+provider_actual = cfg.get("provider", "groq")
+pinfo_actual    = PROVIDERS.get(provider_actual, PROVIDERS["groq"])
 
 st.markdown(f"""
 <div class="nova-header">
