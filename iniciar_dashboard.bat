@@ -1,7 +1,7 @@
 @echo off
-title Novedades MLP - Dashboard
+title Novedades - ClicOH
 echo.
-echo  === Iniciando Dashboard Novedades MLP - Logysto ===
+echo  === Iniciando Tablero de Novedades - ClicOH ===
 echo.
 
 set PYTHON=C:\Users\Asus\AppData\Local\Programs\Python\Python312\python.exe
@@ -14,11 +14,11 @@ REM Crear config de Streamlit (sin BOM)
 if not exist "%USERPROFILE%\.streamlit" mkdir "%USERPROFILE%\.streamlit"
 (echo [browser]& echo gatherUsageStats = false) > "%USERPROFILE%\.streamlit\config.toml"
 
-echo  Abriendo dashboard en http://localhost:8502
+echo  Abriendo tablero en http://localhost:8502
 echo  Presiona Ctrl+C para detener.
 echo.
 
 start "" "http://localhost:8502"
-"%STREAMLIT%" run dashboard.py --server.port 8502 --server.headless true
+"%STREAMLIT%" run Seguimiento.py --server.port 8502 --server.headless true
 
 pause

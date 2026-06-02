@@ -1,7 +1,7 @@
 """
-dashboard.py
-Tablero en vivo — Novedades MLP Logysto
-Ejecutar con: streamlit run dashboard.py
+Seguimiento.py
+Tablero en vivo — Novedades operacionales
+Ejecutar con: streamlit run Seguimiento.py
 """
 
 import os
@@ -25,7 +25,7 @@ from database import init_db, get_all_novedades, get_last_sync, get_pendientes
 
 # ── Configuración de página ───────────────────────────────────────────────
 st.set_page_config(
-    page_title="Novedades MLP · Logysto",
+    page_title="Novedades · ClicOH",
     page_icon="🚨",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -106,7 +106,7 @@ st_autorefresh(interval=900_000, key="autorefresh")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🚨 Novedades MLP\n**Logysto — Tablero en vivo**")
+    st.markdown("## 🚨 Novedades\n**Tablero operacional · ClicOH**")
     st.divider()
 
     # Estado de sincronización (solo lectura — sync automático cada 10 min)
@@ -171,7 +171,7 @@ if tipo_email_sel != "Todos":
 _logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo-clicoh.png")
 col_titulo, col_logo = st.columns([5, 1])
 with col_titulo:
-    st.markdown("# 🚨 Novedades MLP · Logysto")
+    st.markdown("# 🚨 Novedades")
     st.caption(
         f"Período analizado: **{date_from}** → **{date_to}** · "
         f"{len(df)} novedades encontradas"
@@ -670,7 +670,7 @@ else:
 # ── Footer ────────────────────────────────────────────────────────────────
 st.divider()
 st.caption(
-    "Novedades MLP · Logysto — Dashboard automatizado · "
+    "Novedades operacionales — ClicOH · "
     "Datos actualizados desde Gmail · "
     f"Generado el {date.today()}"
 )

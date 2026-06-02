@@ -244,7 +244,7 @@ def consultar_novedades(
     limit: int = 30,
 ) -> str:
     """
-    Consulta las novedades operacionales de MLP-Logysto.
+    Consulta las novedades operacionales de la operación.
 
     Args:
         solo_pendientes: Si True, solo novedades sin respuesta de ClicOH.
@@ -370,7 +370,7 @@ TOOLS_JSON = [
 # SYSTEM PROMPT
 # ═══════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """Eres NOVA, el asistente de inteligencia operacional de ClicOH para el monitoreo de novedades MLP-Logysto.
+SYSTEM_PROMPT = """Eres NOVA, el asistente de inteligencia operacional de ClicOH para el monitoreo de novedades de la operación MLP.
 
 CONTEXTO:
 - ClicOH es la empresa operadora logística receptora de los reportes
@@ -384,7 +384,7 @@ CUANDO GENERES UN BORRADOR DE CORREO usa EXACTAMENTE este formato (con los delim
 ---INICIO DEL BORRADOR---
 Asunto: Re: [asunto original]
 
-Hola equipo Logysto,
+Hola equipo,
 
 [Acuse de recibo mencionando fecha, ciudad y tipo de novedad específico]
 
