@@ -131,9 +131,13 @@ with st.sidebar:
     df_all = get_all_novedades()
 
     # Rango de fechas — filtrar por email_date (cuándo llegó el correo)
-    min_date = df_all["email_date"].min()
-    max_date = df_all["email_date"].max()
-    if pd.isna(min_date):
+    if not df_all.empty and "email_date" in df_all.columns:
+        min_date = df_all["email_date"].min()
+        max_date = df_all["email_date"].max()
+    else:
+        min_date = pd.NaT
+        max_date = pd.NaT
+    if pd.isna(min_date) or pd.isna(max_date):
         min_date = date.today() - timedelta(days=90)
         max_date = date.today()
 
@@ -151,13 +155,20 @@ with st.sidebar:
         max_value=max_date.date() if hasattr(max_date, "date") else max_date,
     )
 
-    ciudades_opts = ["Todas"] + sorted(df_all["ciudad"].dropna().unique().tolist())
+    ciudades_opts = ["Todas"] + (
+        sorted(df_all["ciudad"].dropna().unique().tolist()) if "ciudad" in df_all.columns else []
+    )
     ciudad_sel = st.selectbox("Ciudad", ciudades_opts)
 
-    penalidades_opts = ["Todas"] + [p for p in PENALIDAD_ORDER if p in df_all["penalidad"].values]
+    penalidades_opts = ["Todas"] + (
+        [p for p in PENALIDAD_ORDER if p in df_all["penalidad"].values]
+        if "penalidad" in df_all.columns else []
+    )
     penalidad_sel = st.selectbox("Penalidad", penalidades_opts)
 
-    infractores_opts = ["Todos"] + sorted(df_all["infractor"].dropna().unique().tolist())
+    infractores_opts = ["Todos"] + (
+        sorted(df_all["infractor"].dropna().unique().tolist()) if "infractor" in df_all.columns else []
+    )
     infractor_sel = st.selectbox("Infractor", infractores_opts)
 
     tipo_email_opts = ["Todos", "GRAVE_CRITICO", "SEMANAL"]
@@ -166,9 +177,10 @@ with st.sidebar:
 
 # ── Aplicar filtros ───────────────────────────────────────────────────────
 df = df_all.copy()
-df = df[df["email_date"].notna()]
-df = df[df["email_date"].dt.date >= date_from]
-df = df[df["email_date"].dt.date <= date_to]
+if not df.empty and "email_date" in df.columns:
+    df = df[df["email_date"].notna()]
+    df = df[df["email_date"].dt.date >= date_from]
+    df = df[df["email_date"].dt.date <= date_to]
 if ciudad_sel != "Todas":
     df = df[df["ciudad"] == ciudad_sel]
 if penalidad_sel != "Todas":

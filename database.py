@@ -47,7 +47,9 @@ def _select_df(conn, query: str) -> pd.DataFrame:
             cur.execute(query)
             rows = cur.fetchall()
             if not rows:
-                return pd.DataFrame()
+                # Preservar nombres de columna aunque no haya filas
+                cols = [desc[0] for desc in cur.description] if cur.description else []
+                return pd.DataFrame(columns=cols)
             return pd.DataFrame([dict(r) for r in rows])
     return pd.read_sql_query(query, conn)
 
